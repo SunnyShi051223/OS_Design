@@ -1,0 +1,3 @@
+D:/c_cpp/OS_Design/cmake-build-debug/CMakeFiles/_S_Design.dir
+D:/c_cpp/OS_Design/cmake-build-debug/CMakeFiles/edit_cache.dir
+D:/c_cpp/OS_Design/cmake-build-debug/CMakeFiles/rebuild_cache.dir

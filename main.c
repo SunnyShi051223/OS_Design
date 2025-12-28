@@ -63,6 +63,7 @@ int main() {
                 showStatus();
                 break;
             case 0:
+                clearSystem();
                 printf("程序退出。\n");
                 return 0;
             default:

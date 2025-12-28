@@ -196,5 +196,29 @@ void showStatus() {
 }
 
 void clearSystem() {
-    // 清理内存代码略（实际运行时操作系统会回收，但在严谨代码中应遍历free/alloc链表逐个free）
+    printf(">> 正在清理系统资源...\n");
+
+    // 1. 释放空闲分区链表
+    FreeNode *fp = free_list;
+    int free_count = 0;
+    while (fp != NULL) {
+        FreeNode *temp = fp;
+        fp = fp->next; // 先保存下一个节点的指针
+        free(temp);    // 再释放当前节点
+        free_count++;
+    }
+    free_list = NULL; // 头指针置空
+
+    // 2. 释放已分配分区链表
+    AllocatedNode *ap = alloc_list;
+    int alloc_count = 0;
+    while (ap != NULL) {
+        AllocatedNode *temp = ap;
+        ap = ap->next;
+        free(temp);
+        alloc_count++;
+    }
+    alloc_list = NULL;
+
+    printf(">> 资源清理完毕 (释放空闲节点: %d, 释放占用节点: %d)。\n", free_count, alloc_count);
 }

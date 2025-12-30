@@ -18,7 +18,7 @@ void initMemory(int size) {
     printf(">> 系统初始化完成，总内存: %d KB\n", size);
 }
 
-// 辅助：添加分配记录 (头插法，意味着链表尾部是最早分配的进程)
+// 添加分配记录 (头插法，意味着链表尾部是最早分配的进程)
 void addAllocNode(int pid, int seg_id, int start, int size) {
     AllocatedNode *newNode = (AllocatedNode *)malloc(sizeof(AllocatedNode));
     newNode->pid = pid;
@@ -29,7 +29,7 @@ void addAllocNode(int pid, int seg_id, int start, int size) {
     alloc_list = newNode;
 }
 
-// 辅助：从双向链表移除空闲节点
+// 从双向链表移除空闲节点
 void removeFreeNode(FreeNode *node) {
     if (node == NULL) return;
     if (node->prev != NULL) node->prev->next = node->next;
@@ -39,7 +39,7 @@ void removeFreeNode(FreeNode *node) {
     free(node);
 }
 
-// 辅助：归还内存并执行双向合并 (核心合并算法)
+// 归还内存并执行双向合并
 void returnToFreeList(int start, int size) {
     FreeNode *newNode = (FreeNode *)malloc(sizeof(FreeNode));
     newNode->start_addr = start;
@@ -111,7 +111,7 @@ void releaseMemory(int pid) {
     if (count > 0) printf(">> [系统消息] 进程 %d 已释放 %d 个段，内存已合并。\n", pid, count);
 }
 
-// --- 淘汰函数 (FIFO 策略) ---
+// --- 淘汰函数 (FIFO) ---
 // 返回 true 表示成功淘汰了一个进程，false 表示无进程可淘汰
 bool runElimination(int current_pid) {
     if (alloc_list == NULL) return false;

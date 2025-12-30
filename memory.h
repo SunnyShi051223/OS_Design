@@ -20,20 +20,19 @@ typedef struct FreeNode {
     struct FreeNode *next;
 } FreeNode;
 
-// 2. 已分配分区节点 (单向链表，用于记录进程资源)
+// 2. 已分配分区节点 (单向链表，用于记录段的资源)
 typedef struct AllocatedNode {
-    int pid;
-    int seg_id;
-    int start_addr;
-    int size;
+    int pid;   //进程ID
+    int seg_id;  //段号
+    int start_addr;  //起始物理地址
+    int size;   //段长
     struct AllocatedNode *next;
 } AllocatedNode;
 
 // 全局变量
 extern FreeNode *free_list;
-extern AllocatedNode *alloc_list;
+extern AllocatedNode *alloc_list;  //段表
 
-// --- 核心函数声明 ---
 
 // 初始化
 void initMemory(int size);
@@ -41,7 +40,7 @@ void initMemory(int size);
 // 请求内存 (支持算法选择 + 自动淘汰)
 bool requestMemory(int pid, int seg_count, int *seg_sizes, AllocAlgorithm algo);
 
-// 释放内存 (包含双向链表合并)
+// 释放内存 (双向链表合并)
 void releaseMemory(int pid);
 
 // 淘汰函数 (当空间不足时调用)

@@ -1,114 +1,58 @@
-//
-// Created by 32874 on 2025/12/28.
-//
-
 #include "memory.h"
+#include <limits.h>
 
-// 全局变量定义
+// 全局变量
 FreeNode *free_list = NULL;
 AllocatedNode *alloc_list = NULL;
-int total_memory = 0;
 
-// 初始化内存：建立一个包含全部内存的空闲块
+// 初始化
 void initMemory(int size) {
-    total_memory = size;
+    if (free_list != NULL) clearSystem();
+
     free_list = (FreeNode *)malloc(sizeof(FreeNode));
     free_list->start_addr = 0;
     free_list->size = size;
+    free_list->prev = NULL;
     free_list->next = NULL;
     alloc_list = NULL;
-    printf("系统初始化完成，总内存: %d KB\n", size);
+    printf(">> 系统初始化完成，总内存: %d KB\n", size);
 }
 
-// 辅助函数：向已分配链表添加记录
+// 辅助：添加分配记录 (头插法，意味着链表尾部是最早分配的进程)
 void addAllocNode(int pid, int seg_id, int start, int size) {
     AllocatedNode *newNode = (AllocatedNode *)malloc(sizeof(AllocatedNode));
     newNode->pid = pid;
     newNode->seg_id = seg_id;
     newNode->start_addr = start;
     newNode->size = size;
-
-    // 头插法简单插入（或者按PID排序也可，这里简单处理）
     newNode->next = alloc_list;
     alloc_list = newNode;
 }
 
-// 最坏适应算法实现 (Worst Fit)
-// 策略：遍历整个空闲链表，找到容量最大的那个分区进行分配
-int requestMemory(int pid, int seg_count, int *seg_sizes) {
-    // 备份当前的空闲链表和已分配链表，以便分配失败时回滚
-    // 注意：为简化模拟，本代码假设若分配失败需手动释放已分配部分，
-    // 或者在分配前进行预检查。这里采用“预检查”策略。
+// 辅助：从双向链表移除空闲节点
+void removeFreeNode(FreeNode *node) {
+    if (node == NULL) return;
+    if (node->prev != NULL) node->prev->next = node->next;
+    else free_list = node->next;
 
-    // 1. 预检查：模拟分配，看是否所有段都能满足
-    // 为了不破坏真实链表，我们需要更复杂的逻辑。
-    // 这里采用简单策略：尝试分配，如果中间失败，则通过 releaseMemory(pid) 回滚。
-
-    int i;
-    for (i = 0; i < seg_count; i++) {
-        int req_size = seg_sizes[i];
-
-        FreeNode *worst_fit = NULL;
-        FreeNode *p = free_list;
-        int max_size = -1;
-
-        // --- 核心算法：寻找最大的空闲分区 (Worst Fit) ---
-        while (p != NULL) {
-            if (p->size >= req_size && p->size > max_size) {
-                max_size = p->size;
-                worst_fit = p;
-            }
-            p = p->next;
-        }
-
-        // 如果找不到合适的块
-        if (worst_fit == NULL) {
-            printf("内存不足！进程 %d 的第 %d 段 (大小 %d) 分配失败。\n", pid, i, req_size);
-            // 回滚：释放该进程刚才已分配的段
-            if (i > 0) {
-                printf("正在回滚已分配的资源...\n");
-                releaseMemory(pid);
-            }
-            return 0; // 失败
-        }
-
-        // --- 执行分配 ---
-        // 1. 记录分配信息
-        addAllocNode(pid, i, worst_fit->start_addr, req_size);
-
-        // 2. 修改空闲块（切分）
-        worst_fit->start_addr += req_size;
-        worst_fit->size -= req_size;
-
-        // 3. 如果该空闲块大小变为0，需要从链表中删除它
-        // 注意：由于worst_fit是指针，我们需要重新遍历找到它的前驱来删除，
-        // 或者简单地在下一次整理时处理。为了严谨，这里做清理：
-        if (worst_fit->size == 0) {
-            if (worst_fit == free_list) {
-                free_list = free_list->next;
-                free(worst_fit);
-            } else {
-                FreeNode *prev = free_list;
-                while (prev->next != worst_fit) prev = prev->next;
-                prev->next = worst_fit->next;
-                free(worst_fit);
-            }
-        }
-    }
-
-    return 1; // 成功
+    if (node->next != NULL) node->next->prev = node->prev;
+    free(node);
 }
 
-// 辅助函数：将释放的内存块按地址顺序插入空闲链表，并合并
+// 辅助：归还内存并执行双向合并 (核心合并算法)
 void returnToFreeList(int start, int size) {
     FreeNode *newNode = (FreeNode *)malloc(sizeof(FreeNode));
     newNode->start_addr = start;
     newNode->size = size;
+    newNode->prev = NULL;
     newNode->next = NULL;
 
-    // 1. 插入位置查找（按地址递增有序排列，方便合并）
-    if (free_list == NULL || free_list->start_addr > start) {
+    // 1. 有序插入
+    if (free_list == NULL) {
+        free_list = newNode;
+    } else if (free_list->start_addr > start) {
         newNode->next = free_list;
+        free_list->prev = newNode;
         free_list = newNode;
     } else {
         FreeNode *curr = free_list;
@@ -116,109 +60,185 @@ void returnToFreeList(int start, int size) {
             curr = curr->next;
         }
         newNode->next = curr->next;
+        newNode->prev = curr;
+        if (curr->next != NULL) curr->next->prev = newNode;
         curr->next = newNode;
     }
 
-    // 2. --- 核心算法：合并空闲区 (Coalescing) ---
-    // 遍历链表，检查 curr.end == next.start
-    FreeNode *curr = free_list;
-    while (curr != NULL && curr->next != NULL) {
-        // 判断当前块的尾部是否紧挨着下一个块的头部
-        if (curr->start_addr + curr->size == curr->next->start_addr) {
-            // 合并
-            FreeNode *temp = curr->next;
-            curr->size += temp->size; // 大小累加
-            curr->next = temp->next;  // 链表指针跳过
-            free(temp); // 释放节点内存
-            // 注意：合并后不要急着curr=curr->next，因为可能还要和新的后继合并
-        } else {
-            curr = curr->next;
-        }
+    // 2. 向后合并 (Merge Next)
+    if (newNode->next != NULL &&
+        newNode->start_addr + newNode->size == newNode->next->start_addr) {
+        FreeNode *next = newNode->next;
+        newNode->size += next->size;
+        newNode->next = next->next;
+        if (next->next != NULL) next->next->prev = newNode;
+        free(next);
+    }
+
+    // 3. 向前合并 (Merge Prev)
+    if (newNode->prev != NULL &&
+        newNode->prev->start_addr + newNode->prev->size == newNode->start_addr) {
+        FreeNode *prev = newNode->prev;
+        prev->size += newNode->size;
+        prev->next = newNode->next;
+        if (newNode->next != NULL) newNode->next->prev = prev;
+        free(newNode);
     }
 }
 
-// 内存回收逻辑
+// 释放指定进程的内存
 void releaseMemory(int pid) {
     AllocatedNode *curr = alloc_list;
     AllocatedNode *prev = NULL;
-    int found = 0;
+    int count = 0;
 
-    // 遍历已分配链表，找到所有属于 PID 的段
     while (curr != NULL) {
         if (curr->pid == pid) {
-            found = 1;
-            // 1. 将空间归还给空闲链表（包含合并逻辑）
+            count++;
+            // 归还并合并
             returnToFreeList(curr->start_addr, curr->size);
 
-            // 2. 从已分配链表中删除该节点
-            AllocatedNode *toDelete = curr;
-            if (prev == NULL) {
-                alloc_list = curr->next;
-                curr = alloc_list;
-            } else {
-                prev->next = curr->next;
-                curr = prev->next;
-            }
-            free(toDelete);
+            AllocatedNode *temp = curr;
+            if (prev == NULL) alloc_list = curr->next;
+            else prev->next = curr->next;
+            curr = curr->next;
+            free(temp);
         } else {
             prev = curr;
             curr = curr->next;
         }
     }
+    if (count > 0) printf(">> [系统消息] 进程 %d 已释放 %d 个段，内存已合并。\n", pid, count);
+}
 
-    if (found) {
-        printf("进程 %d 的资源已全部回收并合并。\n", pid);
-    } else {
-        printf("未找到进程 %d 的相关资源。\n", pid);
+// --- 淘汰函数 (FIFO 策略) ---
+// 返回 true 表示成功淘汰了一个进程，false 表示无进程可淘汰
+bool runElimination(int current_pid) {
+    if (alloc_list == NULL) return false;
+
+    // 策略：寻找 alloc_list 的尾部节点。
+    // 因为 addAllocNode 使用的是头插法，所以链表尾部的节点是最早分配的 (FIFO)。
+    AllocatedNode *curr = alloc_list;
+    AllocatedNode *victim = NULL;
+
+    // 遍历找到最后一个不属于当前进程的节点
+    while (curr != NULL) {
+        if (curr->pid != current_pid) {
+            victim = curr; // 记录候选人
+        }
+        curr = curr->next;
     }
+
+    if (victim == NULL) {
+        return false; // 没有其他进程可淘汰
+    }
+
+    int victim_pid = victim->pid;
+    printf(">> [警告] 内存不足！触发淘汰机制：正在移除最旧进程 (PID: %d)...\n", victim_pid);
+    releaseMemory(victim_pid); // 释放并合并
+    return true;
+}
+
+// --- 内存请求 ---
+bool requestMemory(int pid, int seg_count, int *seg_sizes, AllocAlgorithm algo) {
+    if (seg_count <= 0) return false;
+
+    for (int i = 0; i < seg_count; i++) {
+        int req_size = seg_sizes[i];
+        bool allocated = false;
+
+        // 循环尝试分配：如果失败，则淘汰一个进程再试，直到成功或无法淘汰
+        while (!allocated) {
+            FreeNode *target_node = NULL;
+            FreeNode *curr = free_list;
+
+            // --- 1. 执行分配算法 ---
+            if (algo == ALG_FIRST_FIT) {
+                // [首次适应]
+                while (curr != NULL) {
+                    if (curr->size >= req_size) {
+                        target_node = curr;
+                        break;
+                    }
+                    curr = curr->next;
+                }
+            }
+            else if (algo == ALG_BEST_FIT) {
+                // [最佳适应]
+                int min_diff = INT_MAX;
+                while (curr != NULL) {
+                    if (curr->size >= req_size) {
+                        int diff = curr->size - req_size;
+                        if (diff < min_diff) {
+                            min_diff = diff;
+                            target_node = curr;
+                            if (diff == 0) break;
+                        }
+                    }
+                    curr = curr->next;
+                }
+            }
+            else if (algo == ALG_WORST_FIT) {
+                // [最坏适应]
+                int max_size = -1;
+                while (curr != NULL) {
+                    if (curr->size >= req_size && curr->size > max_size) {
+                        max_size = curr->size;
+                        target_node = curr;
+                    }
+                    curr = curr->next;
+                }
+            }
+
+            // --- 2. 判断是否成功 ---
+            if (target_node != NULL) {
+                // 分配成功
+                addAllocNode(pid, i, target_node->start_addr, req_size);
+                target_node->start_addr += req_size;
+                target_node->size -= req_size;
+                if (target_node->size == 0) removeFreeNode(target_node);
+                allocated = true;
+            } else {
+                // --- 3. 分配失败，调用淘汰函数 ---
+                // 尝试淘汰一个进程来腾出空间
+                if (!runElimination(pid)) {
+                    printf("!! 致命错误：内存严重不足，且无可淘汰进程。进程 %d 分配失败。\n", pid);
+                    // 回滚本次已分配的段
+                    if (i > 0) {
+                        printf(">> 回滚：释放进程 %d 已分配的资源...\n", pid);
+                        releaseMemory(pid);
+                    }
+                    return false;
+                }
+                // 淘汰成功后，while循环继续，重新尝试分配当前段
+            }
+        }
+    }
+    return true;
 }
 
 // 显示状态
 void showStatus() {
-    printf("\n----------- 当前内存状态 ------------\n");
-    printf("[空闲分区表] (按地址排序)\n");
+    printf("\n|----------- 当前内存状态 -----------|\n");
+    printf("| [空闲表] (地址: 容量)              |\n");
     FreeNode *f = free_list;
-    if (!f) printf("  无空闲区 (内存已满)\n");
+    if(!f) printf("|  (无空闲)                          |\n");
     while (f) {
-        printf("  地址: %5d | 大小: %5d | 状态: 空闲\n", f->start_addr, f->size);
+        printf("|  %5d -> %5d : %5d KB        |\n", f->start_addr, f->start_addr+f->size, f->size);
         f = f->next;
     }
-
-    printf("[已分配分区表]\n");
+    printf("| [已分配]                           |\n");
     AllocatedNode *a = alloc_list;
-    if (!a) printf("  无活动进程\n");
+    if(!a) printf("|  (无)                              |\n");
     while (a) {
-        printf("  进程ID: %3d | 段号: %2d | 地址: %5d | 大小: %5d\n",
-               a->pid, a->seg_id, a->start_addr, a->size);
+        printf("|  PID:%3d (段%d) 地址:%3d  大小：%3d    |\n", a->pid, a->seg_id, a->start_addr,a->size);
         a = a->next;
     }
-    printf("--------------------------------------\n\n");
+    printf("|------------------------------------|\n\n");
 }
 
+// 清理资源
 void clearSystem() {
-    printf(">> 正在清理系统资源...\n");
-
-    // 1. 释放空闲分区链表
-    FreeNode *fp = free_list;
-    int free_count = 0;
-    while (fp != NULL) {
-        FreeNode *temp = fp;
-        fp = fp->next; // 先保存下一个节点的指针
-        free(temp);    // 再释放当前节点
-        free_count++;
-    }
-    free_list = NULL; // 头指针置空
-
-    // 2. 释放已分配分区链表
-    AllocatedNode *ap = alloc_list;
-    int alloc_count = 0;
-    while (ap != NULL) {
-        AllocatedNode *temp = ap;
-        ap = ap->next;
-        free(temp);
-        alloc_count++;
-    }
-    alloc_list = NULL;
-
-    printf(">> 资源清理完毕 (释放空闲节点: %d, 释放占用节点: %d)。\n", free_count, alloc_count);
+    while(free_list) { FreeNode *t=free_list; free_list=free_list->next; free(t); }
+    while(alloc_list) { AllocatedNode *t=alloc_list; alloc_list=alloc_list->next; free(t); }
 }
